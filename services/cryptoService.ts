@@ -1,31 +1,6 @@
 
-const STORAGE_KEY = 'gemini_api_key_secure';
-const SALT = 'this_is_money_upscaler_secret';
-
-// 간단한 난독화 (클라이언트 사이드 보안)
-export const encryptKey = (key: string): string => {
-  return btoa(SALT + key + SALT);
-};
-
-export const decryptKey = (encrypted: string): string => {
-  try {
-    const decoded = atob(encrypted);
-    return decoded.replace(new RegExp(SALT, 'g'), '');
-  } catch (e) {
-    return '';
-  }
-};
-
-export const saveApiKey = (key: string) => {
-  localStorage.setItem(STORAGE_KEY, encryptKey(key));
-};
-
-export const getApiKey = (): string => {
-  const encrypted = localStorage.getItem(STORAGE_KEY);
-  if (!encrypted) return '';
-  return decryptKey(encrypted);
-};
-
-export const clearApiKey = () => {
-  localStorage.removeItem(STORAGE_KEY);
+// 이 파일은 외장 API 키 관리 시스템(window.aistudio) 도입으로 인해 더 이상 사용되지 않습니다.
+// 모든 키 관리는 플랫폼 레벨에서 안전하게 처리됩니다.
+export const clearOldStorage = () => {
+  localStorage.removeItem('gemini_api_key_secure');
 };

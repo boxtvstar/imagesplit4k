@@ -11,27 +11,13 @@ const getClosestAspectRatio = (width: number, height: number): "1:1" | "3:4" | "
   return "9:16";
 };
 
-// API 키 유효성 테스트 함수
-export const testGeminiConnection = async (apiKey: string): Promise<boolean> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    // 가장 가벼운 모델로 응답 테스트
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: 'hi',
-    });
-    return !!response.text;
-  } catch (error) {
-    console.error("Connection test failed:", error);
-    return false;
-  }
-};
-
-export const enhanceImageWithGemini = async (dataUrl: string, size: ImageSize = '1K', apiKey: string): Promise<string> => {
-  if (!apiKey) throw new Error("API 키가 설정되지 않았습니다.");
-  
+/**
+ * AI 이미지 개선 함수
+ * 이제 API 키를 파라미터로 받지 않고 process.env.API_KEY를 직접 사용합니다.
+ */
+export const enhanceImageWithGemini = async (dataUrl: string, size: ImageSize = '1K'): Promise<string> => {
   // 호출 직전에 새 인스턴스 생성 (최신 키 보장)
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
   
   const match = dataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/);
   if (!match) throw new Error("이미지 데이터 형식이 올바르지 않습니다.");
@@ -50,10 +36,23 @@ export const enhanceImageWithGemini = async (dataUrl: string, size: ImageSize = 
   const { width, height } = await getDimensions();
   const calculatedAspectRatio = getClosestAspectRatio(width, height);
 
+  const isHighRes = size === '2K' || size === '4K';
+  const modelName = isHighRes ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+
   try {
-    // 프롬프트 및 시스템 지침 강화
+    const config: any = {
+      imageConfig: {
+        aspectRatio: calculatedAspectRatio
+      }
+    };
+
+    if (isHighRes) {
+      config.imageConfig.imageSize = size;
+    }
+
+    // Fixed: systemInstruction is moved to text prompt for nano banana series models for better adherence.
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
+      model: modelName,
       contents: {
         parts: [
           {
@@ -63,57 +62,38 @@ export const enhanceImageWithGemini = async (dataUrl: string, size: ImageSize = 
             },
           },
           {
-            text: `Upscale and enhance this image to ${size} resolution. Focus: Remove all noise, sharpen details, and eliminate watermarks. Keep the exact same colors and composition. DO NOT add new objects. OUTPUT ONLY THE ENHANCED IMAGE.`,
+            text: `Restore and upscale this image to high quality. Focus on sharpness and clarity. You are a professional image restoration engine. Output ONLY the resulting image, no text.`,
           },
         ],
       },
-      config: {
-        systemInstruction: "You are a specialized AI image upscaler and restoration engine. Your task is to increase the resolution and quality of the provided image while maintaining strict adherence to the original content. Never output text unless you cannot process the image.",
-        imageConfig: {
-          imageSize: size,
-          aspectRatio: calculatedAspectRatio
-        }
-      }
+      config: config
     });
 
     const candidate = response.candidates?.[0];
-    
-    // 안전 정책 위반 확인
     if (candidate?.finishReason === "SAFETY") {
-      throw new Error("이미지가 안전 정책(Safety)에 의해 차단되었습니다. 다른 이미지를 시도해주세요.");
+      throw new Error("이미지가 안전 정책에 의해 차단되었습니다.");
     }
 
     let resultImage: string | null = null;
-    let textResponse: string = "";
-
     if (candidate?.content?.parts) {
+      // Fixed: Iterating through all parts to find the image part as per guidelines.
       for (const part of candidate.content.parts) {
         if (part.inlineData) {
           resultImage = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
           break;
-        } else if (part.text) {
-          textResponse += part.text;
         }
       }
     }
     
     if (resultImage) return resultImage;
-
-    // 이미지는 없고 텍스트만 있는 경우 (거절 사유 등)
-    if (textResponse) {
-      throw new Error(`AI 응답: ${textResponse}`);
-    }
-
-    throw new Error("결과물에서 이미지 데이터를 찾을 수 없습니다. 프롬프트 거절 또는 모델 일시적 오류일 수 있습니다.");
+    throw new Error("이미지 생성에 실패했습니다. 키 권한 또는 모델 제한을 확인하세요.");
 
   } catch (error: any) {
-    console.error("Gemini Enhancement Error:", error);
-    const errorMsg = error?.message?.toLowerCase() || "";
-    
-    if (errorMsg.includes("permission denied") || errorMsg.includes("403") || errorMsg.includes("not found")) {
+    const errorMsg = error?.message || "";
+    // Fixed: Handle key selection reset for specific error codes.
+    if (errorMsg.includes("403") || errorMsg.includes("permission") || errorMsg.includes("Requested entity was not found")) {
       throw new Error("PERMISSION_DENIED");
     }
-    
-    throw new Error(error?.message || "AI 개선 중 예기치 않은 오류가 발생했습니다.");
+    throw error;
   }
 };

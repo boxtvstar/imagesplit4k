@@ -1,17 +1,18 @@
 
 import React from 'react';
 import { Download, Wand2, Loader2, Maximize2, CheckCircle } from 'lucide-react';
-import { ImageTile, ASPECT_RATIO_CLASSES, AspectRatio } from '../types';
+import { ImageTile, ASPECT_RATIO_CLASSES, AspectRatio, ImageSize } from '../types';
 import { downloadSingleImage } from '../services/imageService';
 
 interface TileCardProps {
   tile: ImageTile;
   aspectRatio: AspectRatio;
+  targetSize: ImageSize;
   onEnhance: (id: string) => void;
   onOpenLightbox: (tile: ImageTile) => void;
 }
 
-const TileCard: React.FC<TileCardProps> = ({ tile, aspectRatio, onEnhance, onOpenLightbox }) => {
+const TileCard: React.FC<TileCardProps> = ({ tile, aspectRatio, targetSize, onEnhance, onOpenLightbox }) => {
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation();
     const url = tile.enhancedUrl || tile.originalUrl;
@@ -40,8 +41,13 @@ const TileCard: React.FC<TileCardProps> = ({ tile, aspectRatio, onEnhance, onOpe
         {/* Badges */}
         <div className="absolute top-2 left-2 flex flex-col gap-2">
           {tile.enhancedUrl && (
-            <span className="px-2 py-0.5 bg-green-500 text-white text-[10px] rounded backdrop-blur-sm flex items-center gap-1">
-              <CheckCircle className="w-3 h-3" /> AI 개선됨
+            <span className="px-2 py-1 bg-green-500 text-white text-[10px] font-bold rounded backdrop-blur-sm flex items-center gap-1 shadow-sm">
+              <CheckCircle className="w-3 h-3" /> {tile.enhancedQuality} 개선됨
+            </span>
+          )}
+          {tile.isEnhancing && (
+            <span className="px-2 py-1 bg-blue-600 text-white text-[10px] font-bold rounded animate-pulse flex items-center gap-1 shadow-sm">
+              <Loader2 className="w-3 h-3 animate-spin" /> {tile.enhancingQuality} 처리 중
             </span>
           )}
         </div>
@@ -72,7 +78,12 @@ const TileCard: React.FC<TileCardProps> = ({ tile, aspectRatio, onEnhance, onOpe
           ) : (
             <Wand2 className="w-4 h-4" />
           )}
-          {tile.isEnhancing ? '처리중' : 'AI 화질 개선'}
+          {tile.isEnhancing 
+            ? `${tile.enhancingQuality} 처리중` 
+            : tile.enhancedUrl 
+              ? `${tile.enhancedQuality} 개선 완료` 
+              : `${targetSize} AI 화질 개선`
+          }
         </button>
         <button
           onClick={handleDownload}

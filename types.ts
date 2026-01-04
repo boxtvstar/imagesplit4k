@@ -4,6 +4,8 @@ export interface ImageTile {
   originalUrl: string;
   enhancedUrl?: string;
   isEnhancing: boolean;
+  enhancingQuality?: ImageSize;
+  enhancedQuality?: ImageSize;
   row: number;
   col: number;
 }

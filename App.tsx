@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import ImageUploader from './components/ImageUploader';
 import TileCard from './components/TileCard';
@@ -8,15 +8,15 @@ import ApiKeyModal from './components/ApiKeyModal';
 import { ImageTile, AspectRatio, ImageSize } from './types';
 import { splitImage, downloadAllAsZip } from './services/imageService';
 import { enhanceImageWithGemini } from './services/geminiService';
-import { getDecryptedKey, removeKey } from './services/cryptoService';
+import { getApiKey, clearApiKey } from './services/cryptoService';
 import { 
   Grid3X3, Download, RefreshCw, Layers, CheckCircle, 
-  Key, ExternalLink, Zap, ShieldCheck, Cpu, AlertTriangle, ArrowRight, Settings2, LogOut
+  Zap, ShieldCheck, ArrowRight, Settings2, Info, AlertTriangle
 } from 'lucide-react';
 
 const App: React.FC = () => {
-  const [hasValidKey, setHasValidKey] = useState<boolean | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [apiKey, setApiKey] = useState<string>('');
+  const [showKeyModal, setShowKeyModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [rows, setRows] = useState<number>(3);
   const [cols, setCols] = useState<number>(3);
@@ -26,27 +26,12 @@ const App: React.FC = () => {
   const [selectedSize, setSelectedSize] = useState<ImageSize>('1K');
   const [lightboxTile, setLightboxTile] = useState<ImageTile | null>(null);
 
-  // 로컬 암호화 저장소에서 키 존재 여부 확인
   useEffect(() => {
-    const checkSavedKey = async () => {
-      const key = await getDecryptedKey();
-      setHasValidKey(!!key);
-    };
-    checkSavedKey();
-  }, []);
-
-  const handleKeySuccess = () => {
-    setHasValidKey(true);
-    setIsModalOpen(false);
-  };
-
-  const handleLogout = () => {
-    if (confirm('저장된 API 키를 삭제하고 로그아웃 하시겠습니까?')) {
-      removeKey();
-      setHasValidKey(false);
-      setTiles([]);
+    const savedKey = getApiKey();
+    if (savedKey) {
+      setApiKey(savedKey);
     }
-  };
+  }, []);
 
   const handleSplit = async () => {
     if (!selectedFile) return;
@@ -62,120 +47,115 @@ const App: React.FC = () => {
   };
 
   const handleEnhance = async (id: string) => {
+    if (!apiKey) {
+      setShowKeyModal(true);
+      return;
+    }
+
     const target = tiles.find(t => t.id === id);
     if (!target) return;
 
-    setTiles(prev => prev.map(t => t.id === id ? { ...t, isEnhancing: true } : t));
+    const currentSize = selectedSize;
+
+    setTiles(prev => prev.map(t => t.id === id ? { ...t, isEnhancing: true, enhancingQuality: currentSize } : t));
     if (lightboxTile?.id === id) {
-      setLightboxTile(prev => prev ? { ...prev, isEnhancing: true } : null);
+      setLightboxTile(prev => prev ? { ...prev, isEnhancing: true, enhancingQuality: currentSize } : null);
     }
 
     try {
-      const enhancedUrl = await enhanceImageWithGemini(target.originalUrl, selectedSize);
+      const enhancedUrl = await enhanceImageWithGemini(target.originalUrl, currentSize, apiKey);
       
-      setTiles(prev => prev.map(t => t.id === id ? { ...t, enhancedUrl, isEnhancing: false } : t));
+      setTiles(prev => prev.map(t => t.id === id ? { 
+        ...t, 
+        enhancedUrl, 
+        isEnhancing: false, 
+        enhancedQuality: currentSize,
+        enhancingQuality: undefined 
+      } : t));
+      
       if (lightboxTile?.id === id) {
-        setLightboxTile(prev => prev ? { ...prev, enhancedUrl, isEnhancing: false } : null);
+        setLightboxTile(prev => prev ? { 
+          ...prev, 
+          enhancedUrl, 
+          isEnhancing: false, 
+          enhancedQuality: currentSize,
+          enhancingQuality: undefined 
+        } : null);
       }
     } catch (err: any) {
-      if (err.message === "API_KEY_ERROR" || err.message === "API_KEY_MISSING") {
-        alert("API 키가 유효하지 않거나 설정이 필요합니다.");
-        setHasValidKey(false);
+      if (err.message === "PERMISSION_DENIED") {
+        alert("선택된 API 키로 모델에 접근할 수 없습니다. 유료 티어 계정의 키인지 확인해주세요.");
+        setShowKeyModal(true);
       } else {
         alert(`AI 개선 오류: ${err.message}`);
       }
       
-      setTiles(prev => prev.map(t => t.id === id ? { ...t, isEnhancing: false } : t));
+      setTiles(prev => prev.map(t => t.id === id ? { ...t, isEnhancing: false, enhancingQuality: undefined } : t));
       if (lightboxTile?.id === id) {
-        setLightboxTile(prev => prev ? { ...prev, isEnhancing: false } : null);
+        setLightboxTile(prev => prev ? { ...prev, isEnhancing: false, enhancingQuality: undefined } : null);
       }
     }
   };
 
-  // 1. 로딩
-  if (hasValidKey === null) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-        <RefreshCw className="w-12 h-12 text-blue-600 animate-spin mb-4" />
-        <p className="text-slate-400 font-bold tracking-widest animate-pulse">암호화 세션 복구 중...</p>
-      </div>
-    );
-  }
-
-  // 2. 키가 없을 때 (외부 웹앱용 온보딩)
-  if (!hasValidKey) {
+  // 키 미설정 시 온보딩 화면
+  if (!apiKey && !showKeyModal) {
     return (
       <Layout>
-        <div className="max-w-4xl mx-auto px-4 py-12 md:py-24">
-          <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 flex flex-col md:flex-row">
-            <div className="md:w-1/2 bg-gradient-to-br from-slate-900 via-slate-800 to-blue-900 p-12 text-white flex flex-col justify-between">
+        <div className="max-w-4xl mx-auto px-4 py-12">
+          <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 flex flex-col md:flex-row animate-in fade-in zoom-in duration-500">
+            <div className="md:w-1/2 bg-gradient-to-br from-slate-900 to-blue-900 p-12 text-white flex flex-col justify-between">
               <div>
-                <div className="bg-white/10 backdrop-blur-md w-14 h-14 rounded-2xl flex items-center justify-center mb-8 border border-white/10">
-                  <ShieldCheck className="w-8 h-8 text-blue-400" />
+                <div className="bg-white/10 w-12 h-12 rounded-xl flex items-center justify-center mb-8">
+                  <ShieldCheck className="w-6 h-6 text-blue-400" />
                 </div>
-                <h2 className="text-4xl font-black mb-6 leading-tight">AI 화질 개선<br/>보안 웹 서비스</h2>
-                <p className="text-slate-300 font-medium leading-relaxed mb-6 opacity-80">
-                  사용자의 API 키를 직접 관리하여 보안을 유지하고,<br/>
-                  제한 없는 초고해상도 분할 서비스를 경험하세요.
-                </p>
+                <h2 className="text-4xl font-black mb-6 leading-tight">전문가용<br/>AI 화질 개선</h2>
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
                     <CheckCircle className="w-5 h-5 text-green-400" />
-                    <span className="text-sm font-bold">AES-256 로컬 암호화 저장</span>
+                    <span className="text-sm font-bold opacity-80">최대 4K 초고해상도 지원</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <CheckCircle className="w-5 h-5 text-green-400" />
-                    <span className="text-sm font-bold">서버리스 (키 정보 미전송)</span>
+                    <span className="text-sm font-bold opacity-80">워터마크 및 노이즈 자동 제거</span>
                   </div>
                 </div>
               </div>
-              <p className="text-slate-500 text-[10px] mt-12 font-black uppercase tracking-[0.2em]">Private & Secure AI Environment</p>
+              <p className="text-xs opacity-50 font-medium">Standalone Vercel Edition</p>
             </div>
 
-            <div className="md:w-1/2 p-12 flex flex-col justify-center bg-white">
-              <div className="mb-10">
-                <div className="inline-flex items-center gap-2 text-blue-600 font-black mb-4 bg-blue-50 px-4 py-1.5 rounded-full text-xs uppercase tracking-tighter">
-                  <Settings2 className="w-4 h-4" /> Setup Required
-                </div>
-                <h3 className="text-3xl font-black text-slate-900 mb-4 tracking-tight">서비스 시작하기</h3>
-                <p className="text-slate-500 text-sm leading-relaxed mb-8">
-                  Gemini API 키를 연결해야 이미지 분할 및 AI 개선 도구를 사용할 수 있습니다. 입력된 키는 오직 귀하의 브라우저에만 암호화되어 보관됩니다.
-                </p>
-
-                <button
-                  onClick={() => setIsModalOpen(true)}
-                  className="group w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xl shadow-2xl shadow-blue-100 transition-all transform hover:-translate-y-1 flex items-center justify-center gap-3"
-                >
-                  API 키 설정 및 테스트
-                  <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
-                </button>
-                
-                <p className="mt-6 text-center text-[10px] text-slate-400 font-bold">
-                  키가 없으신가요? <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-blue-500 underline">Google AI Studio</a>에서 무료로 발급 가능합니다.
-                </p>
-              </div>
+            <div className="md:w-1/2 p-12 bg-white flex flex-col justify-center">
+              <h3 className="text-2xl font-black text-slate-900 mb-4 tracking-tight">시작하기</h3>
+              <p className="text-slate-500 text-sm leading-relaxed mb-8">
+                화질 개선을 위해 Gemini API 키가 필요합니다. 
+                입력하신 키는 사용자의 브라우저에만 암호화되어 저장됩니다.
+              </p>
+              
+              <button
+                onClick={() => setShowKeyModal(true)}
+                className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-lg shadow-xl shadow-blue-100 transition-all flex items-center justify-center gap-3 active:scale-95"
+              >
+                API 키 입력하고 시작하기
+                <ArrowRight className="w-5 h-5" />
+              </button>
             </div>
           </div>
         </div>
-        {isModalOpen && <ApiKeyModal onClose={() => setIsModalOpen(false)} onSuccess={handleKeySuccess} />}
       </Layout>
     );
   }
 
-  // 3. 메인 앱 화면
   return (
     <Layout>
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* 사이드 설정 창 */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
         <div className="lg:col-span-4 space-y-6">
-          <section className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm relative overflow-hidden">
-            <div className="absolute top-4 right-4 flex gap-2">
-              <button onClick={() => setIsModalOpen(true)} className="p-2 bg-slate-50 rounded-xl hover:bg-slate-200 text-slate-400 transition-colors" title="키 재설정">
-                <Settings2 className="w-4 h-4" />
-              </button>
-              <button onClick={handleLogout} className="p-2 bg-red-50 rounded-xl hover:bg-red-100 text-red-400 transition-colors" title="키 삭제">
-                <LogOut className="w-4 h-4" />
+          <section className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm relative overflow-hidden group">
+            <div className="absolute top-4 right-4 z-10">
+              <button 
+                onClick={() => setShowKeyModal(true)} 
+                className="p-3 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 rounded-2xl transition-all shadow-sm"
+                title="API 키 관리"
+              >
+                <Settings2 className="w-5 h-5" />
               </button>
             </div>
 
@@ -211,9 +191,9 @@ const App: React.FC = () => {
             <button
               onClick={handleSplit}
               disabled={!selectedFile || isSplitting}
-              className={`w-full mt-8 py-5 rounded-[1.5rem] font-black text-lg shadow-2xl transition-all
+              className={`w-full mt-8 py-5 rounded-[1.5rem] font-black text-lg shadow-2xl transition-all active:scale-95
                 ${!selectedFile || isSplitting 
-                  ? 'bg-slate-100 text-slate-300' 
+                  ? 'bg-slate-100 text-slate-300 shadow-none' 
                   : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-100 transform hover:-translate-y-1'
                 }
               `}
@@ -241,14 +221,19 @@ const App: React.FC = () => {
                   </button>
                 ))}
               </div>
+              <div className="mt-4 p-4 bg-slate-50 rounded-2xl flex items-start gap-3">
+                <Info className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                <p className="text-[10px] text-slate-500 leading-normal">
+                  2K/4K 품질은 유료 API 키가 필요합니다. 설정 메뉴에서 키를 언제든 변경할 수 있습니다.
+                </p>
+              </div>
             </div>
           </section>
         </div>
 
-        {/* 결과창 */}
         <div className="lg:col-span-8">
           <section className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm min-h-[600px]">
-            <div className="flex items-center justify-between mb-10">
+            <div className="flex items-center justify-between mb-10 flex-wrap gap-4">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-blue-50 rounded-2xl">
                   <Layers className="w-6 h-6 text-blue-600" />
@@ -261,7 +246,7 @@ const App: React.FC = () => {
               {tiles.length > 0 && (
                 <button
                   onClick={() => downloadAllAsZip(tiles)}
-                  className="flex items-center gap-2 py-3.5 px-7 bg-slate-900 text-white rounded-[1.2rem] text-sm font-black hover:bg-black transition-all shadow-xl shadow-slate-200"
+                  className="flex items-center gap-2 py-3.5 px-7 bg-slate-900 text-white rounded-[1.2rem] text-sm font-black hover:bg-black transition-all shadow-xl shadow-slate-200 active:scale-95"
                 >
                   <Download className="w-4 h-4" /> 전체 압축 다운로드
                 </button>
@@ -275,6 +260,7 @@ const App: React.FC = () => {
                     key={tile.id} 
                     tile={tile} 
                     aspectRatio={aspectRatio}
+                    targetSize={selectedSize}
                     onEnhance={handleEnhance}
                     onOpenLightbox={setLightboxTile}
                   />
@@ -285,21 +271,29 @@ const App: React.FC = () => {
                 <div className="bg-slate-100 p-10 rounded-full mb-6">
                   <Grid3X3 className="w-20 h-20 text-slate-300" />
                 </div>
-                <p className="font-black text-slate-400 text-xl uppercase tracking-tighter">No Images Generated</p>
+                <p className="font-black text-slate-400 text-xl uppercase tracking-tighter">No Images Split Yet</p>
               </div>
             )}
           </section>
         </div>
       </div>
 
+      {showKeyModal && (
+        <ApiKeyModal 
+          initialKey={apiKey}
+          onSave={setApiKey}
+          onClose={() => setShowKeyModal(false)}
+        />
+      )}
+
       {lightboxTile && (
         <Lightbox 
           tile={lightboxTile} 
+          targetSize={selectedSize}
           onClose={() => setLightboxTile(null)} 
           onEnhance={handleEnhance}
         />
       )}
-      {isModalOpen && <ApiKeyModal onClose={() => setIsModalOpen(false)} onSuccess={handleKeySuccess} />}
     </Layout>
   );
 };

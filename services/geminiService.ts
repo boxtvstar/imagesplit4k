@@ -1,7 +1,6 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { ImageSize } from "../types";
-import { getDecryptedKey } from "./cryptoService";
 
 const getClosestAspectRatio = (width: number, height: number): "1:1" | "3:4" | "4:3" | "9:16" | "16:9" => {
   const ratio = width / height;
@@ -12,13 +11,25 @@ const getClosestAspectRatio = (width: number, height: number): "1:1" | "3:4" | "
   return "9:16";
 };
 
-export const enhanceImageWithGemini = async (dataUrl: string, size: ImageSize = '1K'): Promise<string> => {
-  // 로컬 암호화 저장소에서 키를 가져오고, 없으면 환경변수 시도
-  const localKey = await getDecryptedKey();
-  const apiKey = localKey || process.env.API_KEY || '';
-  
-  if (!apiKey) throw new Error("API_KEY_MISSING");
+// API 키 유효성 테스트 함수
+export const testGeminiConnection = async (apiKey: string): Promise<boolean> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    // 가장 가벼운 모델로 응답 테스트
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: 'hi',
+    });
+    return !!response.text;
+  } catch (error) {
+    console.error("Connection test failed:", error);
+    return false;
+  }
+};
 
+export const enhanceImageWithGemini = async (dataUrl: string, size: ImageSize = '1K', apiKey: string): Promise<string> => {
+  if (!apiKey) throw new Error("API 키가 설정되지 않았습니다.");
+  
   const ai = new GoogleGenAI({ apiKey });
   
   const match = dataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/);
@@ -50,12 +61,12 @@ export const enhanceImageWithGemini = async (dataUrl: string, size: ImageSize = 
             },
           },
           {
-            text: `Restore and upscale this image to ${size} quality.`,
+            text: `Strictly restore and upscale this image to ${size} quality. No creative changes. Remove watermarks and noise. Output ONLY the image.`,
           },
         ],
       },
       config: {
-        systemInstruction: "You are an AI image restoration engine. Your task is to receive an image and return an upscaled, cleaned, and enhanced version of the same image at the requested resolution. Output ONLY the image data part. Do not engage in text chat.",
+        systemInstruction: "You are a professional image restoration engine. Preserve identity, remove noise/watermarks, and increase resolution. No style changes.",
         imageConfig: {
           imageSize: size,
           aspectRatio: calculatedAspectRatio
@@ -63,25 +74,16 @@ export const enhanceImageWithGemini = async (dataUrl: string, size: ImageSize = 
       }
     });
 
-    if (!response.candidates || response.candidates.length === 0) {
-      throw new Error("AI 응답 생성에 실패했습니다.");
-    }
-
-    const candidate = response.candidates[0];
-    
-    if (candidate.finishReason === "SAFETY") {
-      throw new Error("이미지가 안전 정책에 의해 차단되었습니다.");
-    }
-
-    if (!candidate.content || !candidate.content.parts) {
-      throw new Error(`이미지 처리 실패 (사유: ${candidate.finishReason}). 2K/4K 작업은 유료 프로젝트 API 키가 필요합니다.`);
-    }
+    const candidate = response.candidates?.[0];
+    if (candidate?.finishReason === "SAFETY") throw new Error("이미지가 안전 정책에 의해 차단되었습니다.");
 
     let resultImage: string | null = null;
-    for (const part of candidate.content.parts) {
-      if (part.inlineData) {
-        resultImage = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-        break;
+    if (candidate?.content?.parts) {
+      for (const part of candidate.content.parts) {
+        if (part.inlineData) {
+          resultImage = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+          break;
+        }
       }
     }
     
@@ -89,16 +91,10 @@ export const enhanceImageWithGemini = async (dataUrl: string, size: ImageSize = 
     throw new Error("결과물에서 이미지 데이터를 찾을 수 없습니다.");
 
   } catch (error: any) {
-    console.error("Gemini AI Error:", error);
-    
-    if (error?.message?.includes("API_KEY_INVALID") || error?.status === 401 || error?.status === 403) {
-      throw new Error("API_KEY_ERROR");
+    const errorMsg = error?.message?.toLowerCase() || "";
+    if (errorMsg.includes("permission denied") || errorMsg.includes("403") || errorMsg.includes("requested entity was not found")) {
+      throw new Error("PERMISSION_DENIED");
     }
-    
-    if (error?.message?.includes("MALFORMED_FUNCTION_CALL")) {
-      throw new Error("모델 통신 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
-    }
-    
-    throw error;
+    throw new Error(error?.message || "AI 오류가 발생했습니다.");
   }
 };

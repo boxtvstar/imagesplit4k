@@ -1,133 +1,125 @@
 
 import React, { useState } from 'react';
-import { X, ShieldCheck, Key, CheckCircle, AlertCircle, Loader2, Play } from 'lucide-react';
-import { saveEncryptedKey } from '../services/cryptoService';
-import { GoogleGenAI } from "@google/genai";
+import { Key, ShieldCheck, X, RefreshCw, CheckCircle, AlertCircle, ExternalLink } from 'lucide-react';
+import { testGeminiConnection } from '../services/geminiService';
+import { saveApiKey } from '../services/cryptoService';
 
 interface ApiKeyModalProps {
+  onSave: (key: string) => void;
   onClose: () => void;
-  onSuccess: (key: string) => void;
+  initialKey?: string;
 }
 
-const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose, onSuccess }) => {
-  const [inputKey, setInputKey] = useState('');
-  const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-  const [errorMessage, setErrorMessage] = useState('');
+const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onClose, initialKey = '' }) => {
+  const [apiKey, setApiKey] = useState(initialKey);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const handleTestAndSave = async () => {
-    if (!inputKey.trim()) {
-      setStatus('error');
-      setErrorMessage('API 키를 입력해주세요.');
-      return;
+    if (!apiKey.trim()) return;
+    
+    setIsTesting(true);
+    setTestStatus('idle');
+    
+    const isValid = await testGeminiConnection(apiKey);
+    
+    if (isValid) {
+      setTestStatus('success');
+      saveApiKey(apiKey);
+      setTimeout(() => {
+        onSave(apiKey);
+        onClose();
+      }, 1000);
+    } else {
+      setTestStatus('error');
     }
-
-    setStatus('testing');
-    try {
-      // 연결 테스트용 최소 호출
-      const ai = new GoogleGenAI({ apiKey: inputKey });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: 'hi',
-      });
-
-      if (response.text) {
-        await saveEncryptedKey(inputKey);
-        setStatus('success');
-        setTimeout(() => {
-          onSuccess(inputKey);
-          onClose();
-        }, 1500);
-      }
-    } catch (err: any) {
-      console.error(err);
-      setStatus('error');
-      setErrorMessage(err.message || 'API 키가 유효하지 않거나 연결에 실패했습니다.');
-    }
+    setIsTesting(false);
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={onClose} />
-      
-      <div className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+      <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/20">
         <div className="p-8">
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-xl">
-                <ShieldCheck className="w-6 h-6 text-blue-600" />
-              </div>
-              <h3 className="text-xl font-black text-slate-900">보안 API 설정</h3>
+          <div className="flex justify-between items-start mb-6">
+            <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-100">
+              <Key className="w-6 h-6 text-white" />
             </div>
-            <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-              <X className="w-5 h-5 text-slate-400" />
+            <button onClick={onClose} className="p-2 text-slate-400 hover:bg-slate-50 rounded-full transition-all">
+              <X className="w-5 h-5" />
             </button>
           </div>
 
+          <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">API 키 설정</h2>
+          <p className="text-sm text-slate-500 mb-8 leading-relaxed">
+            Gemini API 키를 입력해주세요. <br/>
+            키는 브라우저 로컬 저장소에 안전하게 암호화되어 저장됩니다.
+          </p>
+
           <div className="space-y-6">
-            <div>
-              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">
-                Gemini API Key
-              </label>
-              <div className="relative">
-                <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
-                <input
-                  type="password"
-                  value={inputKey}
-                  onChange={(e) => setInputKey(e.target.value)}
-                  placeholder="AI Studio에서 발급받은 키 입력"
-                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 focus:ring-0 outline-none font-bold text-slate-700 transition-all"
-                />
+            <div className="relative">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Google Gemini API Key</label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  setTestStatus('idle');
+                }}
+                placeholder="AIzaSy..."
+                className={`w-full px-6 py-4 bg-slate-50 border-2 rounded-2xl outline-none transition-all font-mono text-sm
+                  ${testStatus === 'success' ? 'border-green-500 bg-green-50' : 
+                    testStatus === 'error' ? 'border-red-500 bg-red-50' : 'border-slate-100 focus:border-blue-500'}
+                `}
+              />
+              <div className="absolute right-4 top-1/2 -translate-y-1 mt-3">
+                {testStatus === 'success' && <CheckCircle className="w-5 h-5 text-green-500" />}
+                {testStatus === 'error' && <AlertCircle className="w-5 h-5 text-red-500" />}
               </div>
             </div>
 
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <ul className="text-[11px] text-slate-500 space-y-2 font-medium">
-                <li className="flex gap-2">
-                  <CheckCircle className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                  로컬 드라이브에 AES-256 규격으로 암호화되어 저장됩니다.
-                </li>
-                <li className="flex gap-2">
-                  <CheckCircle className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                  서버로 키가 전송되지 않으며 오직 브라우저 내에서만 동작합니다.
-                </li>
-              </ul>
+            <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+              <div className="flex items-center gap-2 mb-2">
+                <ShieldCheck className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-black text-blue-800">유료 티어 계정 권장</span>
+              </div>
+              <p className="text-[10px] text-blue-700 leading-normal font-medium">
+                Gemini 3 Pro 엔진(2K/4K)을 원활하게 사용하려면 <strong>결제 수단이 등록된 유료 프로젝트</strong>의 키가 필요합니다.
+              </p>
             </div>
 
-            {status === 'error' && (
-              <div className="flex items-center gap-2 p-4 bg-red-50 text-red-600 rounded-2xl text-xs font-bold animate-in slide-in-from-top-2">
-                <AlertCircle className="w-4 h-4" />
-                {errorMessage}
-              </div>
-            )}
-
-            {status === 'success' && (
-              <div className="flex items-center gap-2 p-4 bg-green-50 text-green-600 rounded-2xl text-xs font-bold animate-in slide-in-from-top-2">
-                <CheckCircle className="w-4 h-4" />
-                인증 성공! 키가 안전하게 저장되었습니다.
-              </div>
-            )}
-
-            <button
-              onClick={handleTestAndSave}
-              disabled={status === 'testing' || status === 'success'}
-              className={`w-full py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all
-                ${status === 'testing' ? 'bg-slate-100 text-slate-400' : 
-                  status === 'success' ? 'bg-green-500 text-white' : 
-                  'bg-blue-600 text-white hover:bg-blue-700 shadow-xl shadow-blue-100 hover:-translate-y-1'}
-              `}
-            >
-              {status === 'testing' ? (
-                <>
-                  <Loader2 className="w-6 h-6 animate-spin" />
-                  연결 테스트 중...
-                </>
-              ) : (
-                <>
-                  <Play className="w-5 h-5 fill-current" />
-                  테스트 및 저장
-                </>
-              )}
-            </button>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={handleTestAndSave}
+                disabled={isTesting || !apiKey.trim()}
+                className={`w-full py-5 rounded-2xl font-black text-lg transition-all flex items-center justify-center gap-3 shadow-xl
+                  ${isTesting ? 'bg-slate-100 text-slate-400' : 
+                    testStatus === 'success' ? 'bg-green-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-100'}
+                `}
+              >
+                {isTesting ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    연결 확인 중...
+                  </>
+                ) : testStatus === 'success' ? (
+                  <>
+                    <CheckCircle className="w-5 h-5" />
+                    저장 완료
+                  </>
+                ) : (
+                  '연결 테스트 및 저장'
+                )}
+              </button>
+              
+              <a 
+                href="https://aistudio.google.com/app/apikey" 
+                target="_blank" 
+                rel="noreferrer"
+                className="flex items-center justify-center gap-1 text-[11px] font-bold text-slate-400 hover:text-blue-600 transition-colors"
+              >
+                API 키가 없으신가요? <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
           </div>
         </div>
       </div>

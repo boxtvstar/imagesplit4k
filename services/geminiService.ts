@@ -1,6 +1,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { ImageSize } from "../types";
+import { getDecryptedKey } from "./cryptoService";
 
 const getClosestAspectRatio = (width: number, height: number): "1:1" | "3:4" | "4:3" | "9:16" | "16:9" => {
   const ratio = width / height;
@@ -12,8 +13,13 @@ const getClosestAspectRatio = (width: number, height: number): "1:1" | "3:4" | "
 };
 
 export const enhanceImageWithGemini = async (dataUrl: string, size: ImageSize = '1K'): Promise<string> => {
-  // 호출 시점에 최신 API 키를 반영하기 위해 인스턴스 생성
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  // 로컬 암호화 저장소에서 키를 가져오고, 없으면 환경변수 시도
+  const localKey = await getDecryptedKey();
+  const apiKey = localKey || process.env.API_KEY || '';
+  
+  if (!apiKey) throw new Error("API_KEY_MISSING");
+
+  const ai = new GoogleGenAI({ apiKey });
   
   const match = dataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/);
   if (!match) throw new Error("이미지 데이터 형식이 올바르지 않습니다.");
@@ -33,9 +39,6 @@ export const enhanceImageWithGemini = async (dataUrl: string, size: ImageSize = 
   const calculatedAspectRatio = getClosestAspectRatio(width, height);
 
   try {
-    // MALFORMED_FUNCTION_CALL 에러 방지 전략: 
-    // 텍스트 파트에는 어떠한 구조적 명령도 넣지 않고 단순 서술만 남김.
-    // 모든 전문적인 지시 사항은 config.systemInstruction으로 격리.
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-image-preview',
       contents: {
@@ -88,7 +91,7 @@ export const enhanceImageWithGemini = async (dataUrl: string, size: ImageSize = 
   } catch (error: any) {
     console.error("Gemini AI Error:", error);
     
-    if (error?.message?.includes("Requested entity was not found") || error?.status === 404) {
+    if (error?.message?.includes("API_KEY_INVALID") || error?.status === 401 || error?.status === 403) {
       throw new Error("API_KEY_ERROR");
     }
     

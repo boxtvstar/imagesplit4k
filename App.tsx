@@ -4,16 +4,19 @@ import Layout from './components/Layout';
 import ImageUploader from './components/ImageUploader';
 import TileCard from './components/TileCard';
 import Lightbox from './components/Lightbox';
+import ApiKeyModal from './components/ApiKeyModal';
 import { ImageTile, AspectRatio, ImageSize } from './types';
 import { splitImage, downloadAllAsZip } from './services/imageService';
 import { enhanceImageWithGemini } from './services/geminiService';
+import { getDecryptedKey, removeKey } from './services/cryptoService';
 import { 
   Grid3X3, Download, RefreshCw, Layers, CheckCircle, 
-  Key, ExternalLink, Zap, ShieldCheck, Cpu, AlertTriangle, ArrowRight
+  Key, ExternalLink, Zap, ShieldCheck, Cpu, AlertTriangle, ArrowRight, Settings2, LogOut
 } from 'lucide-react';
 
 const App: React.FC = () => {
-  const [isKeySelected, setIsKeySelected] = useState<boolean | null>(null);
+  const [hasValidKey, setHasValidKey] = useState<boolean | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [rows, setRows] = useState<number>(3);
   const [cols, setCols] = useState<number>(3);
@@ -23,35 +26,25 @@ const App: React.FC = () => {
   const [selectedSize, setSelectedSize] = useState<ImageSize>('1K');
   const [lightboxTile, setLightboxTile] = useState<ImageTile | null>(null);
 
-  // 앱 실행 즉시 API 키 상태를 체크합니다.
+  // 로컬 암호화 저장소에서 키 존재 여부 확인
   useEffect(() => {
-    const checkApiKey = async () => {
-      try {
-        const aistudio = (window as any).aistudio;
-        if (aistudio) {
-          const hasKey = await aistudio.hasSelectedApiKey();
-          setIsKeySelected(hasKey);
-        } else {
-          // 로컬 환경 또는 직접 주입된 키가 있는 경우
-          setIsKeySelected(!!process.env.API_KEY);
-        }
-      } catch (err) {
-        setIsKeySelected(false);
-      }
+    const checkSavedKey = async () => {
+      const key = await getDecryptedKey();
+      setHasValidKey(!!key);
     };
-    checkApiKey();
+    checkSavedKey();
   }, []);
 
-  const handleOpenKeySelector = async () => {
-    try {
-      const aistudio = (window as any).aistudio;
-      if (aistudio) {
-        await aistudio.openSelectKey();
-        // 키 선택 창이 닫히면 레이스 컨디션을 방지하기 위해 성공으로 간주하고 진입합니다.
-        setIsKeySelected(true);
-      }
-    } catch (err) {
-      console.error("Key selector error", err);
+  const handleKeySuccess = () => {
+    setHasValidKey(true);
+    setIsModalOpen(false);
+  };
+
+  const handleLogout = () => {
+    if (confirm('저장된 API 키를 삭제하고 로그아웃 하시겠습니까?')) {
+      removeKey();
+      setHasValidKey(false);
+      setTiles([]);
     }
   };
 
@@ -85,9 +78,9 @@ const App: React.FC = () => {
         setLightboxTile(prev => prev ? { ...prev, enhancedUrl, isEnhancing: false } : null);
       }
     } catch (err: any) {
-      if (err.message === "API_KEY_ERROR") {
-        alert("API 키 권한 오류가 발생했습니다. 유료 프로젝트의 키를 다시 선택해주세요.");
-        setIsKeySelected(false);
+      if (err.message === "API_KEY_ERROR" || err.message === "API_KEY_MISSING") {
+        alert("API 키가 유효하지 않거나 설정이 필요합니다.");
+        setHasValidKey(false);
       } else {
         alert(`AI 개선 오류: ${err.message}`);
       }
@@ -99,77 +92,72 @@ const App: React.FC = () => {
     }
   };
 
-  // 1. API 키가 아직 확인되지 않았을 때 (로딩)
-  if (isKeySelected === null) {
+  // 1. 로딩
+  if (hasValidKey === null) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
         <RefreshCw className="w-12 h-12 text-blue-600 animate-spin mb-4" />
-        <p className="text-slate-400 font-bold tracking-widest animate-pulse">인증 세션 확인 중...</p>
+        <p className="text-slate-400 font-bold tracking-widest animate-pulse">암호화 세션 복구 중...</p>
       </div>
     );
   }
 
-  // 2. API 키가 연결되지 않았을 때 (온보딩 화면 강제)
-  if (isKeySelected === false) {
+  // 2. 키가 없을 때 (외부 웹앱용 온보딩)
+  if (!hasValidKey) {
     return (
       <Layout>
         <div className="max-w-4xl mx-auto px-4 py-12 md:py-24">
           <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 flex flex-col md:flex-row">
-            <div className="md:w-1/2 bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-800 p-12 text-white flex flex-col justify-between">
+            <div className="md:w-1/2 bg-gradient-to-br from-slate-900 via-slate-800 to-blue-900 p-12 text-white flex flex-col justify-between">
               <div>
-                <div className="bg-white/20 backdrop-blur-md w-14 h-14 rounded-2xl flex items-center justify-center mb-8">
-                  <Cpu className="w-8 h-8 text-white" />
+                <div className="bg-white/10 backdrop-blur-md w-14 h-14 rounded-2xl flex items-center justify-center mb-8 border border-white/10">
+                  <ShieldCheck className="w-8 h-8 text-blue-400" />
                 </div>
-                <h2 className="text-4xl font-black mb-6 leading-tight">초고화질 AI<br/>이미지 마스터</h2>
+                <h2 className="text-4xl font-black mb-6 leading-tight">AI 화질 개선<br/>보안 웹 서비스</h2>
+                <p className="text-slate-300 font-medium leading-relaxed mb-6 opacity-80">
+                  사용자의 API 키를 직접 관리하여 보안을 유지하고,<br/>
+                  제한 없는 초고해상도 분할 서비스를 경험하세요.
+                </p>
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
-                    <ShieldCheck className="w-5 h-5 text-blue-300" />
-                    <span className="font-semibold">Gemini 3 Pro 전문가용 엔진</span>
+                    <CheckCircle className="w-5 h-5 text-green-400" />
+                    <span className="text-sm font-bold">AES-256 로컬 암호화 저장</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Zap className="w-5 h-5 text-blue-300" />
-                    <span className="font-semibold">최대 4K 무손실 업스케일링</span>
+                    <CheckCircle className="w-5 h-5 text-green-400" />
+                    <span className="text-sm font-bold">서버리스 (키 정보 미전송)</span>
                   </div>
                 </div>
               </div>
-              <p className="text-blue-200 text-xs mt-12 opacity-50 font-bold uppercase tracking-widest">Enterprise AI Solution</p>
+              <p className="text-slate-500 text-[10px] mt-12 font-black uppercase tracking-[0.2em]">Private & Secure AI Environment</p>
             </div>
 
             <div className="md:w-1/2 p-12 flex flex-col justify-center bg-white">
               <div className="mb-10">
-                <div className="inline-flex items-center gap-2 text-amber-600 font-bold mb-4 bg-amber-50 px-4 py-1 rounded-full text-sm">
-                  <Key className="w-4 h-4" /> 필수 설정
+                <div className="inline-flex items-center gap-2 text-blue-600 font-black mb-4 bg-blue-50 px-4 py-1.5 rounded-full text-xs uppercase tracking-tighter">
+                  <Settings2 className="w-4 h-4" /> Setup Required
                 </div>
-                <h3 className="text-2xl font-black text-slate-900 mb-4">Gemini API 키 연결</h3>
+                <h3 className="text-3xl font-black text-slate-900 mb-4 tracking-tight">서비스 시작하기</h3>
                 <p className="text-slate-500 text-sm leading-relaxed mb-8">
-                  이미지 분할 및 4K 화질 개선을 사용하기 위해 <b>결제 수단이 등록된 유료 프로젝트</b>의 API 키 연결이 필요합니다.
+                  Gemini API 키를 연결해야 이미지 분할 및 AI 개선 도구를 사용할 수 있습니다. 입력된 키는 오직 귀하의 브라우저에만 암호화되어 보관됩니다.
                 </p>
-                
-                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 mb-8 flex gap-4">
-                  <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0 mt-1" />
-                  <div>
-                    <p className="text-xs text-slate-700 font-bold mb-1">유료 프로젝트 한도 확인</p>
-                    <a 
-                      href="https://ai.google.dev/gemini-api/docs/billing" 
-                      target="_blank" rel="noopener noreferrer"
-                      className="text-[10px] text-blue-600 underline flex items-center gap-1 hover:text-blue-800"
-                    >
-                      공식 결제 가이드 바로가기 <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                </div>
 
                 <button
-                  onClick={handleOpenKeySelector}
-                  className="group w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xl shadow-2xl shadow-blue-200 transition-all transform hover:-translate-y-1 flex items-center justify-center gap-3"
+                  onClick={() => setIsModalOpen(true)}
+                  className="group w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xl shadow-2xl shadow-blue-100 transition-all transform hover:-translate-y-1 flex items-center justify-center gap-3"
                 >
-                  API 키 연결 후 시작
+                  API 키 설정 및 테스트
                   <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
                 </button>
+                
+                <p className="mt-6 text-center text-[10px] text-slate-400 font-bold">
+                  키가 없으신가요? <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-blue-500 underline">Google AI Studio</a>에서 무료로 발급 가능합니다.
+                </p>
               </div>
             </div>
           </div>
         </div>
+        {isModalOpen && <ApiKeyModal onClose={() => setIsModalOpen(false)} onSuccess={handleKeySuccess} />}
       </Layout>
     );
   }
@@ -182,9 +170,12 @@ const App: React.FC = () => {
         {/* 사이드 설정 창 */}
         <div className="lg:col-span-4 space-y-6">
           <section className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm relative overflow-hidden">
-            <div className="absolute top-4 right-4">
-              <button onClick={handleOpenKeySelector} className="p-2 bg-slate-50 rounded-xl hover:bg-slate-200 text-slate-400 transition-colors" title="키 설정">
-                <Key className="w-4 h-4" />
+            <div className="absolute top-4 right-4 flex gap-2">
+              <button onClick={() => setIsModalOpen(true)} className="p-2 bg-slate-50 rounded-xl hover:bg-slate-200 text-slate-400 transition-colors" title="키 재설정">
+                <Settings2 className="w-4 h-4" />
+              </button>
+              <button onClick={handleLogout} className="p-2 bg-red-50 rounded-xl hover:bg-red-100 text-red-400 transition-colors" title="키 삭제">
+                <LogOut className="w-4 h-4" />
               </button>
             </div>
 
@@ -308,6 +299,7 @@ const App: React.FC = () => {
           onEnhance={handleEnhance}
         />
       )}
+      {isModalOpen && <ApiKeyModal onClose={() => setIsModalOpen(false)} onSuccess={handleKeySuccess} />}
     </Layout>
   );
 };

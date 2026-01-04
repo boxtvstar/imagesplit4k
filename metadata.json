@@ -1,0 +1,5 @@
+{
+  "name": "Copy of 이미지 분할기 & 화질 개선(4k)api버전",
+  "description": "한 장의 격자형 이미지를 업로드하여 설정한 행과 열로 분할하고, Gemini AI를 사용하여 화질 개선 및 워터마크를 제거할 수 있는 전문가용 도구입니다.",
+  "requestFramePermissions": []
+}

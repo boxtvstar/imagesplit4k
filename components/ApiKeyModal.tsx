@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Key, ShieldCheck, X, RefreshCw, CheckCircle, AlertCircle, ExternalLink } from 'lucide-react';
+import { Key, ShieldCheck, X, RefreshCw, CheckCircle, AlertCircle, ExternalLink, Save } from 'lucide-react';
 import { testGeminiConnection } from '../services/geminiService';
 import { saveApiKey } from '../services/cryptoService';
 
@@ -21,10 +21,12 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onClose, initialKey =
     setIsTesting(true);
     setTestStatus('idle');
     
+    // 1. 먼저 연결 테스트
     const isValid = await testGeminiConnection(apiKey);
     
     if (isValid) {
       setTestStatus('success');
+      // 2. 테스트 성공 시 암호화하여 로컬 스토리지에 저장 (Vercel 등 외부에서도 유지됨)
       saveApiKey(apiKey);
       setTimeout(() => {
         onSave(apiKey);
@@ -38,21 +40,21 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onClose, initialKey =
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-      <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/20">
+      <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-white/20 animate-in zoom-in duration-300">
         <div className="p-8">
           <div className="flex justify-between items-start mb-6">
             <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-100">
-              <Key className="w-6 h-6 text-white" />
+              <Save className="w-6 h-6 text-white" />
             </div>
             <button onClick={onClose} className="p-2 text-slate-400 hover:bg-slate-50 rounded-full transition-all">
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">API 키 설정</h2>
+          <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">로컬 보안 저장소 연동</h2>
           <p className="text-sm text-slate-500 mb-8 leading-relaxed">
-            Gemini API 키를 입력해주세요. <br/>
-            키는 브라우저 로컬 저장소에 안전하게 암호화되어 저장됩니다.
+            API 키는 브라우저의 보안 영역에 암호화되어 저장됩니다. <br/>
+            서버에 전송되지 않으며, 한 번 설정하면 계속 유지됩니다.
           </p>
 
           <div className="space-y-6">
@@ -77,13 +79,13 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onClose, initialKey =
               </div>
             </div>
 
-            <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+            <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
               <div className="flex items-center gap-2 mb-2">
-                <ShieldCheck className="w-4 h-4 text-blue-600" />
-                <span className="text-xs font-black text-blue-800">유료 티어 계정 권장</span>
+                <ShieldCheck className="w-4 h-4 text-amber-600" />
+                <span className="text-xs font-black text-amber-800">Paid Tier Key 필수</span>
               </div>
-              <p className="text-[10px] text-blue-700 leading-normal font-medium">
-                Gemini 3 Pro 엔진(2K/4K)을 원활하게 사용하려면 <strong>결제 수단이 등록된 유료 프로젝트</strong>의 키가 필요합니다.
+              <p className="text-[10px] text-amber-700 leading-normal font-medium">
+                2K/4K 고화질 개선은 <strong>유료 티어(Pay-as-you-go)</strong> 프로젝트의 키에서만 작동할 가능성이 높습니다. 무료 키 사용 시 이미지가 생성되지 않을 수 있습니다.
               </p>
             </div>
 
@@ -99,15 +101,15 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onClose, initialKey =
                 {isTesting ? (
                   <>
                     <RefreshCw className="w-5 h-5 animate-spin" />
-                    연결 확인 중...
+                    연결 확인 및 암호화 저장 중...
                   </>
                 ) : testStatus === 'success' ? (
                   <>
                     <CheckCircle className="w-5 h-5" />
-                    저장 완료
+                    저장 및 연결 성공
                   </>
                 ) : (
-                  '연결 테스트 및 저장'
+                  '로컬 드라이브 저장 및 테스트'
                 )}
               </button>
               
@@ -117,7 +119,7 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onClose, initialKey =
                 rel="noreferrer"
                 className="flex items-center justify-center gap-1 text-[11px] font-bold text-slate-400 hover:text-blue-600 transition-colors"
               >
-                API 키가 없으신가요? <ExternalLink className="w-3 h-3" />
+                API 키 관리 페이지 바로가기 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
           </div>

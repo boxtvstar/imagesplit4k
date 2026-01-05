@@ -1,151 +1,147 @@
 
-import React, { useState } from 'react';
-import { ShieldCheck, X, Zap, ExternalLink, Key, Lock, CheckCircle2, RefreshCw, AlertCircle, HardDrive } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
+import React, { useState, useEffect } from 'react';
+import { ShieldCheck, X, Zap, Key, Lock, CheckCircle2, RefreshCw, AlertCircle, Save, Eye, EyeOff, ExternalLink } from 'lucide-react';
+import { testGeminiConnection } from '../services/geminiService';
 
 interface KeyManagerModalProps {
   onClose: () => void;
-  onKeySelected: () => void;
+  onKeyUpdated: () => void;
   isConnected: boolean;
 }
 
-const KeyManagerModal: React.FC<KeyManagerModalProps> = ({ onClose, onKeySelected, isConnected }) => {
+const KeyManagerModal: React.FC<KeyManagerModalProps> = ({ onClose, onKeyUpdated, isConnected }) => {
+  const [inputValue, setInputValue] = useState('');
+  const [showKey, setShowKey] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleOpenSelectKey = async () => {
+  useEffect(() => {
+    const saved = localStorage.getItem('custom_gemini_api_key');
+    if (saved) {
+      try {
+        setInputValue(atob(saved));
+      } catch {
+        setInputValue(saved);
+      }
+    }
+  }, []);
+
+  const handleSaveAndTest = async () => {
+    if (!inputValue.trim()) {
+      setErrorMessage("API 키를 입력해주세요.");
+      setTestStatus('error');
+      return;
+    }
+
+    setTestStatus('testing');
+    setErrorMessage(null);
+
     try {
-      await window.aistudio.openSelectKey();
-      onKeySelected();
-      // 새 키 선택 시 테스트 상태 초기화
-      setTestStatus('idle');
-    } catch (error) {
-      console.error("Key selection failed", error);
+      const success = await testGeminiConnection(inputValue.trim());
+      if (success) {
+        localStorage.setItem('custom_gemini_api_key', btoa(inputValue.trim()));
+        setTestStatus('success');
+        onKeyUpdated();
+        setTimeout(onClose, 1000);
+      } else {
+        throw new Error("연결 테스트 응답이 유효하지 않습니다.");
+      }
+    } catch (error: any) {
+      setTestStatus('error');
+      setErrorMessage(error?.message || "연결에 실패했습니다. 키를 다시 확인해주세요.");
     }
   };
 
-  const handleTestConnection = async () => {
-    setTestStatus('testing');
-    setErrorMessage(null);
-    
-    try {
-      // 최신 API 키를 사용하기 위해 호출 시점에 인스턴스 생성
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-      
-      // 저사양 모델로 가벼운 연결 확인 작업 수행
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: 'ping',
-      });
-
-      if (response.text) {
-        setTestStatus('success');
-      } else {
-        throw new Error("AI 엔진으로부터 응답이 없습니다.");
-      }
-    } catch (error: any) {
-      console.error("Connection test failed", error);
-      setTestStatus('error');
-      setErrorMessage(error?.message || "연결에 실패했습니다. 키 권한이나 프로젝트 설정을 확인하세요.");
-    }
+  const handleClear = () => {
+    localStorage.removeItem('custom_gemini_api_key');
+    setInputValue('');
+    setTestStatus('idle');
+    onKeyUpdated();
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-2xl animate-in fade-in duration-500">
-      <div className="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl border border-white/20 overflow-hidden relative">
-        {/* Decorative background glows */}
-        <div className="absolute -top-24 -right-24 w-64 h-64 bg-blue-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
-        <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-amber-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
-
-        <div className="relative p-12">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-xl animate-in fade-in duration-300">
+      <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl border border-white/20 overflow-hidden relative">
+        <div className="p-10 flex flex-col items-center text-center">
           <button 
             onClick={onClose}
-            className="absolute top-8 right-8 p-3 text-slate-400 hover:bg-slate-50 hover:text-slate-900 rounded-2xl transition-all"
+            className="absolute top-6 right-6 p-2 text-slate-400 hover:bg-slate-50 rounded-full transition-all"
           >
             <X className="w-6 h-6" />
           </button>
 
-          <div className="flex flex-col items-center text-center">
-            <div className={`w-24 h-24 rounded-[2rem] flex items-center justify-center mb-8 shadow-2xl transition-all duration-700 transform ${isConnected ? 'bg-green-600 rotate-0' : 'bg-slate-900 -rotate-12'}`}>
-              {isConnected ? <ShieldCheck className="w-12 h-12 text-white" /> : <Lock className="w-12 h-12 text-white" />}
-            </div>
+          <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mb-6 shadow-2xl transition-all duration-500 ${isConnected ? 'bg-green-500 scale-110 shadow-green-200' : 'bg-slate-900 shadow-slate-200'}`}>
+            {isConnected ? <ShieldCheck className="w-10 h-10 text-white" /> : <Lock className="w-10 h-10 text-white" />}
+          </div>
 
-            <h2 className="text-4xl font-black text-slate-900 mb-4 tracking-tighter">
-              외부 AI 엔진 관리
-            </h2>
-            <p className="text-slate-500 text-lg leading-relaxed max-w-sm mb-10 font-medium">
-              이 앱의 모든 API 키는 사용자의 로컬 환경에 암호화되어 안전하게 보관되며, 플랫폼 외부에서 독립적으로 관리됩니다.
-            </p>
+          <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">API 보안 커넥터</h2>
+          <p className="text-slate-500 text-sm mb-6">Gemini AI 화질 개선 엔진을 사용하기 위해<br/>자신의 API 키를 입력해주세요.</p>
 
-            <div className="w-full grid grid-cols-1 gap-4 mb-10">
-              {/* Storage Info Card */}
-              <div className="flex items-center gap-5 p-6 bg-slate-50 rounded-[2rem] border border-slate-100 group hover:border-blue-200 transition-colors">
-                <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition-transform">
-                  <HardDrive className="w-6 h-6 text-blue-600" />
-                </div>
-                <div className="text-left flex-grow">
-                  <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1">Local Persistence</p>
-                  <p className="text-base font-bold text-slate-800">로컬 드라이브 암호화 저장소</p>
-                </div>
-                {isConnected ? (
-                  <div className="bg-green-100 text-green-700 px-4 py-1.5 rounded-full text-xs font-black flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4" /> ACTIVE
-                  </div>
-                ) : (
-                  <div className="bg-slate-200 text-slate-500 px-4 py-1.5 rounded-full text-xs font-black">
-                    INACTIVE
-                  </div>
-                )}
-              </div>
+          <a 
+            href="https://aistudio.google.com/app/apikey" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="mb-8 inline-flex items-center gap-2 px-5 py-2.5 bg-blue-50 text-blue-600 rounded-full text-xs font-black hover:bg-blue-100 transition-all border border-blue-100"
+          >
+            무료 API 키 발급받기 <ExternalLink className="w-3.5 h-3.5" />
+          </a>
 
-              {/* Engine Status Card */}
-              <div className="flex items-center gap-5 p-6 bg-slate-50 rounded-[2rem] border border-slate-100 group hover:border-blue-200 transition-colors">
-                <div className="bg-white p-4 rounded-2xl shadow-sm group-hover:scale-110 transition-transform">
-                  <Zap className="w-6 h-6 text-amber-500" />
-                </div>
-                <div className="text-left flex-grow">
-                  <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1">Engine Health</p>
-                  <p className="text-base font-bold text-slate-800">연결 상태 테스트</p>
-                </div>
+          <div className="w-full space-y-6">
+            <div className="text-left space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Gemini API Key</label>
+              <div className="relative">
+                <input
+                  type={showKey ? "text" : "password"}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  placeholder="AIzaSy..."
+                  className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 focus:bg-white outline-none transition-all font-mono text-sm pr-12 shadow-inner"
+                />
                 <button
-                  onClick={handleTestConnection}
-                  disabled={!isConnected || testStatus === 'testing'}
-                  className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2
-                    ${testStatus === 'success' ? 'bg-green-600 text-white' : 
-                      testStatus === 'error' ? 'bg-red-100 text-red-600' : 
-                      'bg-slate-900 text-white hover:bg-black disabled:opacity-30 disabled:cursor-not-allowed'}
-                  `}
+                  onClick={() => setShowKey(e => !e)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 >
-                  {testStatus === 'testing' ? <RefreshCw className="w-4 h-4 animate-spin" /> : 
-                   testStatus === 'success' ? <CheckCircle2 className="w-4 h-4" /> : 
-                   testStatus === 'error' ? <AlertCircle className="w-4 h-4" /> : null}
-                  {testStatus === 'testing' ? '테스트 중...' : 
-                   testStatus === 'success' ? '연결 성공' : 
-                   testStatus === 'error' ? '테스트 실패' : '테스트 시작'}
+                  {showKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
             </div>
 
             {testStatus === 'error' && (
-              <div className="w-full mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl text-left flex items-start gap-3 animate-in slide-in-from-top-2">
-                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-100 rounded-2xl text-left animate-in slide-in-from-top-2">
+                <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                 <p className="text-xs text-red-700 font-bold leading-relaxed">{errorMessage}</p>
               </div>
             )}
 
-            <div className="grid grid-cols-1 gap-4 w-full">
+            {testStatus === 'success' && (
+              <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-100 rounded-2xl text-left animate-in slide-in-from-top-2">
+                <CheckCircle2 className="w-5 h-5 text-green-500" />
+                <p className="text-xs text-green-700 font-bold">연결에 성공했습니다! 설정을 저장합니다.</p>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
               <button
-                onClick={handleOpenSelectKey}
-                className="w-full py-6 bg-blue-600 hover:bg-blue-700 text-white rounded-[1.5rem] font-black text-xl shadow-2xl shadow-blue-100 transition-all flex items-center justify-center gap-3 active:scale-[0.98] group"
+                onClick={handleClear}
+                className="px-6 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm hover:bg-slate-200 transition-all"
               >
-                <ExternalLink className="w-6 h-6 transition-transform group-hover:translate-x-1" />
-                {isConnected ? 'API 키 변경/설정' : '외부 API 키 연결하기'}
+                초기화
+              </button>
+              <button
+                onClick={handleSaveAndTest}
+                disabled={testStatus === 'testing'}
+                className="flex-1 py-4 bg-slate-900 hover:bg-black text-white rounded-2xl font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+              >
+                {testStatus === 'testing' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                연결 및 보안 저장
               </button>
             </div>
+          </div>
 
-            <p className="mt-8 text-[12px] text-slate-400 font-bold max-w-xs">
-              * 설정된 키는 브라우저를 닫아도 암호화되어 유지됩니다. <br/>
-              <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline mt-2 inline-block">결제 방식 확인하기</a>
+          <div className="mt-8 p-4 bg-slate-50 rounded-2xl text-left space-y-1">
+            <p className="text-[11px] text-slate-600 font-bold">💡 2K/4K 개선이 안 되나요?</p>
+            <p className="text-[10px] text-slate-400 leading-relaxed font-medium">
+              Gemini 3 Pro 모델은 구글 클라우드 프로젝트에 결제 수단이 등록되어 있어야 사용할 수 있는 경우가 많습니다. 무료 키라면 1K 모드를 이용해 보세요.
             </p>
           </div>
         </div>

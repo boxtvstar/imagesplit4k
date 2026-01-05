@@ -1,17 +1,16 @@
 
 import React from 'react';
 import { X, Download, Wand2, Loader2, CheckCircle } from 'lucide-react';
-import { ImageTile, ImageSize } from '../types';
+import { ImageTile } from '../types';
 import { downloadSingleImage } from '../services/imageService';
 
 interface LightboxProps {
   tile: ImageTile;
-  targetSize: ImageSize;
   onClose: () => void;
   onEnhance: (id: string) => void;
 }
 
-const Lightbox: React.FC<LightboxProps> = ({ tile, targetSize, onClose, onEnhance }) => {
+const Lightbox: React.FC<LightboxProps> = ({ tile, onClose, onEnhance }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-8">
       <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" onClick={onClose} />
@@ -23,13 +22,13 @@ const Lightbox: React.FC<LightboxProps> = ({ tile, targetSize, onClose, onEnhanc
             <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
               상세 미리보기
               {tile.enhancedUrl && (
-                <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-black">
-                  {tile.enhancedQuality} AI ENHANCED
+                <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-black uppercase">
+                  AI ENHANCED
                 </span>
               )}
               {tile.isEnhancing && (
-                <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-black animate-pulse">
-                  {tile.enhancingQuality} PROCESSING
+                <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-black animate-pulse uppercase">
+                  PROCESSING
                 </span>
               )}
             </h3>
@@ -51,8 +50,8 @@ const Lightbox: React.FC<LightboxProps> = ({ tile, targetSize, onClose, onEnhanc
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
               <div className="bg-white/90 p-8 rounded-[2rem] shadow-2xl flex flex-col items-center backdrop-blur-md border border-white">
                 <Loader2 className="w-16 h-16 text-blue-600 animate-spin mb-4" />
-                <p className="text-blue-600 font-black text-xl tracking-tight">{tile.enhancingQuality} AI 화질 개선 중...</p>
-                <p className="text-slate-400 text-xs mt-2 font-bold">노이즈 제거 및 디테일 복원 작업이 진행 중입니다.</p>
+                <p className="text-blue-600 font-black text-xl tracking-tight">AI 화질 개선 중...</p>
+                <p className="text-slate-400 text-xs mt-2 font-bold">노이즈 제거 및 텍스트 오버레이 제거 작업이 진행 중입니다.</p>
               </div>
             </div>
           )}
@@ -80,10 +79,10 @@ const Lightbox: React.FC<LightboxProps> = ({ tile, targetSize, onClose, onEnhanc
                 <Wand2 className="w-5 h-5" />
               )}
               {tile.isEnhancing 
-                ? `${tile.enhancingQuality} 처리 중` 
+                ? `처리 중` 
                 : tile.enhancedUrl 
-                  ? `${tile.enhancedQuality} 개선 완료` 
-                  : `${targetSize} AI 화질 개선`
+                  ? `개선 완료` 
+                  : `화질 개선 및 텍스트 제거`
               }
             </button>
           </div>
